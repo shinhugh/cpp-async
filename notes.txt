@@ -1,0 +1,18 @@
+code order in .h file:
+1. type definitions
+2. function declarations
+3. variable declarations
+4. template function definitions
+
+code order in .cpp file:
+1. type definitions
+2. function declarations
+3. variable definitions
+4. function definitions
+
+#include order
+1. corresponding header (for .cpp)
+2. headers in same module
+3. headers in different modules in same project
+4. headers in external libraries
+5. headers in C/C++ standard library
