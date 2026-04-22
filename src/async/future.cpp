@@ -6,11 +6,36 @@
 #include "telemetry/living_span.h"
 
 #include <condition_variable>
+#include <cstddef>
 #include <functional>
 #include <memory>
 #include <mutex>
 #include <utility>
 #include <vector>
+
+// -----------------------------------------------------------------------------
+
+async::Future<void> async::Future<void>::RequireAll(
+  std::vector<Future<void>>& /*futures*/)
+{
+  std::shared_ptr<impl::PromiseFutureState<void>> state;
+
+  // TODO: Implement
+
+  return Future{ state };
+}
+
+// -----------------------------------------------------------------------------
+
+async::Future<size_t> async::Future<void>::RequireOne(
+  std::vector<Future<void>>& /*futures*/)
+{
+  std::shared_ptr<impl::PromiseFutureState<size_t>> state;
+
+  // TODO: Implement
+
+  return Future<size_t>{ state };
+}
 
 // -----------------------------------------------------------------------------
 

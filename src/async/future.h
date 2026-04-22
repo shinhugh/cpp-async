@@ -2,7 +2,10 @@
 
 #include "promise_future_state.h"
 
+#include <cstddef>
 #include <memory>
+#include <utility>
+#include <vector>
 
 // -----------------------------------------------------------------------------
 
@@ -14,6 +17,10 @@ namespace async
 template <typename T>
 class Future
 {
+public:
+  static Future<std::vector<T>> RequireAll(std::vector<Future>&);
+  static Future<std::pair<size_t, T>> RequireOne(std::vector<Future>&);
+
 public:
   Future(const std::shared_ptr<impl::PromiseFutureState<T>>&);
   const T& Await();
@@ -27,6 +34,10 @@ private:
 template <>
 class Future<void>
 {
+public:
+  static Future RequireAll(std::vector<Future>&);
+  static Future<size_t> RequireOne(std::vector<Future>&);
+
 public:
   Future(const std::shared_ptr<impl::PromiseFutureState<void>>&);
   void Await();
@@ -49,8 +60,32 @@ private:
 #include <functional>
 #include <mutex>
 #include <optional>
-#include <utility>
-#include <vector>
+
+// -----------------------------------------------------------------------------
+
+template <typename T>
+async::Future<std::vector<T>> async::Future<T>::RequireAll(
+  std::vector<Future<T>>& /*futures*/)
+{
+  std::shared_ptr<impl::PromiseFutureState<std::vector<T>>> state;
+
+  // TODO: Implement
+
+  return Future<std::vector<T>>{ state };
+}
+
+// -----------------------------------------------------------------------------
+
+template <typename T>
+async::Future<std::pair<size_t, T>> async::Future<T>::RequireOne(
+  std::vector<Future<T>>& /*futures*/)
+{
+  std::shared_ptr<impl::PromiseFutureState<std::pair<size_t, T>>> state;
+
+  // TODO: Implement
+
+  return Future<std::pair<size_t, T>>{ state };
+}
 
 // -----------------------------------------------------------------------------
 
