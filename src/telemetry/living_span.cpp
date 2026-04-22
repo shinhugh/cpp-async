@@ -18,6 +18,7 @@
 #include <cstdint>
 #include <iomanip>
 #include <ios>
+#include <iostream>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -139,6 +140,20 @@ telemetry::LivingSpan::LivingSpan(LivingSpan&& src)
 
 telemetry::LivingSpan::~LivingSpan()
 {
+  if (m_alive)
+  {
+    std::stringstream ss;
+    ss
+      << "span:"
+      << std::endl
+      << "  trace ID:       " << m_traceId
+      << std::endl
+      << "  span ID:        " << m_spanId
+      << std::endl
+      << "  parent span ID: " << (m_parentSpanId ? *m_parentSpanId : "<none>")
+      << std::endl;
+    std::cout << ss.str();
+  }
 }
 
 // -----------------------------------------------------------------------------
