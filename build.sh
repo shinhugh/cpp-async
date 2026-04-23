@@ -24,10 +24,12 @@ clang++               \
   build/async/*.o     \
   build/main/*.o      \
   build/telemetry/*.o \
+  -lboost_context     \
   -o build/main.out
 
 clang++               \
   build/async/*.o     \
   build/telemetry/*.o \
   build/test/*.o      \
+  -lboost_context     \
   -o build/test.out

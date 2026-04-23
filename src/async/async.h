@@ -37,7 +37,10 @@ int ExecuteProgram(std::function<int()>&&);
 
 #include "telemetry/living_span.h"
 
+#include <boost/context/continuation_fcontext.hpp>
+
 #include <condition_variable>
+#include <cstddef>
 #include <memory>
 #include <mutex>
 #include <thread>
@@ -56,6 +59,11 @@ extern std::unordered_map<std::thread::id, std::thread> g_activeThreads;
 extern std::mutex g_activeThreadsMutex;
 extern std::vector<std::thread> g_completeThreads;
 extern std::mutex g_completeThreadsMutex;
+extern size_t g_coroutineCount;
+extern std::mutex g_coroutineCountMutex;
+extern std::vector<std::shared_ptr<boost::context::continuation>>
+  g_readyContinuations;
+extern std::mutex g_readyContinuationsMutex;
 extern std::condition_variable_any g_allTasksCv;
 
 // -----------------------------------------------------------------------------
@@ -136,12 +144,59 @@ async::Future<T> async::RunTaskOnNewThread(std::function<T()>&& task)
 // -----------------------------------------------------------------------------
 
 template <typename T>
-async::Future<T> async::RunTaskOnNewCoroutine(std::function<T()>&& /*task*/)
+async::Future<T> async::RunTaskOnNewCoroutine(std::function<T()>&& task)
 {
   std::shared_ptr<impl::PromiseFutureState<T>> promiseFutureState
     = std::make_shared<impl::PromiseFutureState<T>>();
 
-  // TODO: Implement
+  boost::context::continuation childContext = boost::context::callcc([
+    task = std::move(task),
+    promise = impl::Promise{ promiseFutureState },
+    span = GetActiveSpan()](
+    boost::context::continuation&& parentContinuation) mutable
+    {
+      {
+        std::lock_guard lock{ impl::g_coroutineCountMutex };
+        impl::g_coroutineCount++;
+      }
+      impl::g_allTasksCv.notify_one();
+
+      parentContinuation = parentContinuation.resume();
+
+      impl::ThreadLocalCoroutineTaskContext* context
+        = impl::GetThreadLocalCoroutineTaskContext();
+
+      context->m_yieldCallback = [&parentContinuation]()
+        {
+          parentContinuation = parentContinuation.resume();
+        };
+      context->m_span = std::make_unique<telemetry::LivingSpan>(
+        span ?
+        telemetry::LivingSpan::Create(*span) :
+        telemetry::LivingSpan::Create());
+
+      T result = task();
+
+      context->m_span.reset();
+      context->m_yieldCallback = {};
+
+      {
+        std::lock_guard lock{ impl::g_coroutineCountMutex };
+        impl::g_coroutineCount--;
+      }
+      impl::g_allTasksCv.notify_one();
+
+      promise.Fulfill(std::move(result));
+
+      return std::move(parentContinuation);
+    });
+
+  {
+    std::lock_guard lock{ impl::g_readyContinuationsMutex };
+    impl::g_readyContinuations.push_back(
+      std::make_shared<boost::context::continuation>(std::move(childContext)));
+  }
+  impl::g_allTasksCv.notify_one();
 
   return Future<T>{ promiseFutureState };
 }
