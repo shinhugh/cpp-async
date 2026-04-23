@@ -27,11 +27,21 @@ int ExecuteProgram(std::function<int()>&&);
 
 // -----------------------------------------------------------------------------
 
+#include "promise_future_state.h"
+
+#include <memory>
+
+// -----------------------------------------------------------------------------
+
 template <typename T>
 async::Future<T> async::RunTaskOnNewThread(std::function<T()>&& /*task*/)
 {
+  std::shared_ptr<impl::PromiseFutureState<T>> promiseFutureState
+    = std::make_shared<impl::PromiseFutureState<T>>();
+
   // TODO: Implement
-  return Future<T>{};
+
+  return Future<T>{ promiseFutureState };
 }
 
 // -----------------------------------------------------------------------------
@@ -39,6 +49,10 @@ async::Future<T> async::RunTaskOnNewThread(std::function<T()>&& /*task*/)
 template <typename T>
 async::Future<T> async::RunTaskOnNewCoroutine(std::function<T()>&& /*task*/)
 {
+  std::shared_ptr<impl::PromiseFutureState<T>> promiseFutureState
+    = std::make_shared<impl::PromiseFutureState<T>>();
+
   // TODO: Implement
-  return Future<T>{};
+
+  return Future<T>{ promiseFutureState };
 }

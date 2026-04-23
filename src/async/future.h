@@ -1,5 +1,9 @@
 #pragma once
 
+#include "promise_future_state.h"
+
+#include <memory>
+
 // -----------------------------------------------------------------------------
 
 namespace async
@@ -11,8 +15,11 @@ template <typename T>
 class Future
 {
 public:
-  Future();
+  Future(const std::shared_ptr<impl::PromiseFutureState<T>>&);
   const T& Await();
+
+private:
+  const std::shared_ptr<impl::PromiseFutureState<T>> m_state;
 };
 
 // -----------------------------------------------------------------------------
@@ -21,8 +28,11 @@ template <>
 class Future<void>
 {
 public:
-  Future();
+  Future(const std::shared_ptr<impl::PromiseFutureState<void>>&);
   void Await();
+
+private:
+  const std::shared_ptr<impl::PromiseFutureState<void>> m_state;
 };
 
 // -----------------------------------------------------------------------------
@@ -32,7 +42,9 @@ public:
 // -----------------------------------------------------------------------------
 
 template <typename T>
-async::Future<T>::Future()
+async::Future<T>::Future(
+  const std::shared_ptr<impl::PromiseFutureState<T>>& state)
+  : m_state(state)
 {
 }
 

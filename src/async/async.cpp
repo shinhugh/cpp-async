@@ -1,16 +1,22 @@
 #include "async.h"
 
 #include "future.h"
+#include "promise_future_state.h"
 
 #include <functional>
+#include <memory>
 
 // -----------------------------------------------------------------------------
 
 template <>
 async::Future<void> async::RunTaskOnNewThread(std::function<void()>&& /*task*/)
 {
+  std::shared_ptr<impl::PromiseFutureState<void>> promiseFutureState
+    = std::make_shared<impl::PromiseFutureState<void>>();
+
   // TODO: Implement
-  return Future<void>{};
+
+  return Future<void>{ promiseFutureState };
 }
 
 // -----------------------------------------------------------------------------
@@ -19,8 +25,12 @@ template <>
 async::Future<void> async::RunTaskOnNewCoroutine(
   std::function<void()>&& /*task*/)
 {
+  std::shared_ptr<impl::PromiseFutureState<void>> promiseFutureState
+    = std::make_shared<impl::PromiseFutureState<void>>();
+
   // TODO: Implement
-  return Future<void>{};
+
+  return Future<void>{ promiseFutureState };
 }
 
 // -----------------------------------------------------------------------------
