@@ -9,6 +9,7 @@ mkdir -p build/async
 clang++ src/async/async.cpp -c -o build/async/async.o -Isrc -D PLATFORM_POSIX -g -Wall -Wextra
 clang++ src/async/future.cpp -c -o build/async/future.o -Isrc -D PLATFORM_POSIX -g -Wall -Wextra
 clang++ src/async/promise.cpp -c -o build/async/promise.o -Isrc -D PLATFORM_POSIX -g -Wall -Wextra
+clang++ src/async/thread_local_task_context.cpp -c -o build/async/thread_local_task_context.o -Isrc -D PLATFORM_POSIX -g -Wall -Wextra
 
 mkdir -p build/main
 clang++ src/main/main.cpp -c -o build/main/main.o -Isrc -D PLATFORM_POSIX -g -Wall -Wextra
