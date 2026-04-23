@@ -43,3 +43,28 @@ void async::impl::DestroyThreadLocalThreadTaskContext()
   std::lock_guard lock{ s_threadLocalThreadTaskContextsMutex };
   s_threadLocalThreadTaskContexts.erase(std::this_thread::get_id());
 }
+
+// -----------------------------------------------------------------------------
+
+async::impl::ThreadLocalCoroutineTaskContext*
+  async::impl::GetThreadLocalCoroutineTaskContext()
+{
+  // TODO: Implement
+  return nullptr;
+}
+
+// -----------------------------------------------------------------------------
+
+async::impl::ThreadLocalCoroutineTaskContext*
+  async::impl::CreateThreadLocalCoroutineTaskContext()
+{
+  // TODO: Implement
+  return nullptr;
+}
+
+// -----------------------------------------------------------------------------
+
+void async::impl::DestroyThreadLocalCoroutineTaskContext()
+{
+  // TODO: Implement
+}
