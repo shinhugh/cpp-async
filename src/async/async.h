@@ -1,21 +1,16 @@
-#include "async/async.h"
+#pragma once
 
 #include <functional>
 
 // -----------------------------------------------------------------------------
 
-int Program();
+namespace async
+{
 
 // -----------------------------------------------------------------------------
 
-int main()
-{
-  return async::ExecuteProgram(Program);
-}
+int ExecuteProgram(std::function<int()>&&);
 
 // -----------------------------------------------------------------------------
 
-int Program()
-{
-  return 0;
-}
+} // async
