@@ -38,7 +38,20 @@ std::condition_variable_any async::impl::g_allTasksCv;
 
 std::optional<telemetry::Span> async::GetActiveSpan()
 {
-  // TODO: Implement
+  impl::ThreadLocalThreadTaskContext* activeThreadContext
+    = impl::GetThreadLocalThreadTaskContext();
+  if (activeThreadContext)
+  {
+    return *activeThreadContext->m_span;
+  }
+
+  impl::ThreadLocalCoroutineTaskContext* activeCoroutineContext
+    = impl::GetThreadLocalCoroutineTaskContext();
+  if (activeCoroutineContext)
+  {
+    return *activeCoroutineContext->m_span;
+  }
+
   return std::nullopt;
 }
 
