@@ -12,6 +12,11 @@ static std::unordered_map<
   async::impl::ThreadLocalThreadTaskContext>
   s_threadLocalThreadTaskContexts;
 static std::mutex s_threadLocalThreadTaskContextsMutex;
+static std::unordered_map<
+  std::thread::id,
+  async::impl::ThreadLocalCoroutineTaskContext>
+  s_threadLocalCoroutineTaskContexts;
+static std::mutex s_threadLocalCoroutineTaskContextsMutex;
 
 // -----------------------------------------------------------------------------
 
@@ -49,8 +54,13 @@ void async::impl::DestroyThreadLocalThreadTaskContext()
 async::impl::ThreadLocalCoroutineTaskContext*
   async::impl::GetThreadLocalCoroutineTaskContext()
 {
-  // TODO: Implement
-  return nullptr;
+  std::lock_guard lock{ s_threadLocalCoroutineTaskContextsMutex };
+  auto it = s_threadLocalCoroutineTaskContexts.find(std::this_thread::get_id());
+  if (it == s_threadLocalCoroutineTaskContexts.end())
+  {
+    return nullptr;
+  }
+  return &it->second;
 }
 
 // -----------------------------------------------------------------------------
@@ -58,13 +68,14 @@ async::impl::ThreadLocalCoroutineTaskContext*
 async::impl::ThreadLocalCoroutineTaskContext*
   async::impl::CreateThreadLocalCoroutineTaskContext()
 {
-  // TODO: Implement
-  return nullptr;
+  std::lock_guard lock{ s_threadLocalCoroutineTaskContextsMutex };
+  return &s_threadLocalCoroutineTaskContexts[std::this_thread::get_id()];
 }
 
 // -----------------------------------------------------------------------------
 
 void async::impl::DestroyThreadLocalCoroutineTaskContext()
 {
-  // TODO: Implement
+  std::lock_guard lock{ s_threadLocalCoroutineTaskContextsMutex };
+  s_threadLocalCoroutineTaskContexts.erase(std::this_thread::get_id());
 }
