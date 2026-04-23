@@ -2,7 +2,10 @@
 
 #include "future.h"
 
+#include "telemetry/span.h"
+
 #include <functional>
+#include <optional>
 
 // -----------------------------------------------------------------------------
 
@@ -11,6 +14,7 @@ namespace async
 
 // -----------------------------------------------------------------------------
 
+std::optional<telemetry::Span> GetActiveSpan();
 template <typename T>
 Future<T> RunTaskOnNewThread(std::function<T()>&&);
 template <>
