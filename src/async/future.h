@@ -41,6 +41,19 @@ private:
 
 // -----------------------------------------------------------------------------
 
+#include "thread_local_task_context.h"
+
+#include "telemetry/living_span.h"
+
+#include <condition_variable>
+#include <functional>
+#include <mutex>
+#include <optional>
+#include <utility>
+#include <vector>
+
+// -----------------------------------------------------------------------------
+
 template <typename T>
 async::Future<T>::Future(
   const std::shared_ptr<impl::PromiseFutureState<T>>& state)
@@ -53,7 +66,64 @@ async::Future<T>::Future(
 template <typename T>
 const T& async::Future<T>::Await()
 {
-  // TODO: Implement
-  void* x = nullptr;
-  return *static_cast<T*>(x);
+  impl::ThreadLocalCoroutineTaskContext* context
+    = impl::GetThreadLocalCoroutineTaskContext();
+
+  std::unique_lock futureLock{ m_state->m_mutex };
+
+  if (m_state->m_fulfilled)
+  {
+    return *m_state->m_result;
+  }
+
+  if (!context)
+  {
+    bool threadReady = false;
+    std::mutex threadReadyMutex;
+    std::condition_variable threadReadyCv;
+
+    m_state->m_onFulfillCallbacks.push_back([
+      &threadReady,
+      &threadReadyMutex,
+      &threadReadyCv](const T&)
+      {
+        {
+          std::lock_guard threadReadyLock{ threadReadyMutex };
+          threadReady = true;
+        }
+        threadReadyCv.notify_one();
+      });
+
+    futureLock.unlock();
+
+    std::unique_lock threadReadyLock{ threadReadyMutex };
+    while (!threadReady)
+    {
+      threadReadyCv.wait(threadReadyLock);
+    }
+  }
+
+  else
+  {
+    m_state->m_onFulfillCallbacks.push_back([
+      requeueCallback = std::move(context->m_requeueCallback)](
+      const T&)
+      {
+        requeueCallback();
+      });
+
+    futureLock.unlock();
+
+    std::unique_ptr<telemetry::LivingSpan> span{ std::move(context->m_span) };
+    context->m_span.reset();
+    std::function<void()> yieldCallback = std::move(context->m_yieldCallback);
+    context->m_yieldCallback = {};
+
+    yieldCallback();
+
+    context->m_yieldCallback = std::move(yieldCallback);
+    context->m_span = std::move(span);
+  }
+
+  return *m_state->m_result;
 }
