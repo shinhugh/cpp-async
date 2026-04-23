@@ -3,8 +3,19 @@
 #include "future.h"
 #include "promise_future_state.h"
 
+#include "telemetry/span.h"
+
 #include <functional>
 #include <memory>
+#include <optional>
+
+// -----------------------------------------------------------------------------
+
+std::optional<telemetry::Span> async::GetActiveSpan()
+{
+  // TODO: Implement
+  return std::nullopt;
+}
 
 // -----------------------------------------------------------------------------
 
