@@ -23,6 +23,11 @@
 
 // -----------------------------------------------------------------------------
 
+static size_t DestroyCompleteThreads();
+static size_t RunReadyCoroutines();
+
+// -----------------------------------------------------------------------------
+
 std::unordered_map<std::thread::id, std::thread> async::impl::g_activeThreads;
 std::mutex async::impl::g_activeThreadsMutex;
 std::vector<std::thread> async::impl::g_completeThreads;
@@ -188,8 +193,123 @@ async::Future<void> async::RunTaskOnNewCoroutine(std::function<void()>&& task)
 
 // -----------------------------------------------------------------------------
 
-int async::ExecuteProgram(std::function<int()>&& /*program*/)
+int async::ExecuteProgram(std::function<int()>&& program)
 {
-  // TODO: Implement
-  return 1;
+  class AllTasksLock
+  {
+  public:
+    AllTasksLock()
+    {
+      lock();
+    }
+
+    AllTasksLock(const AllTasksLock&) = delete;
+
+    AllTasksLock(AllTasksLock&&) = delete;
+
+    ~AllTasksLock()
+    {
+      unlock();
+    }
+
+    AllTasksLock& operator=(const AllTasksLock&) = delete;
+
+    AllTasksLock& operator=(AllTasksLock&&) = delete;
+
+    void lock()
+    {
+      std::lock(
+        impl::g_activeThreadsMutex,
+        impl::g_completeThreadsMutex,
+        impl::g_coroutineCountMutex,
+        impl::g_readyContinuationsMutex);
+    }
+
+    void unlock()
+    {
+      impl::g_readyContinuationsMutex.unlock();
+      impl::g_coroutineCountMutex.unlock();
+      impl::g_completeThreadsMutex.unlock();
+      impl::g_activeThreadsMutex.unlock();
+    }
+  };
+
+  Future<int> future = RunTaskOnNewCoroutine<int>(std::move(program));
+
+  bool quit = false;
+  while (!quit)
+  {
+    DestroyCompleteThreads();
+    RunReadyCoroutines();
+
+    AllTasksLock lock;
+    while (impl::g_completeThreads.empty()
+      && impl::g_readyContinuations.empty())
+    {
+      if (impl::g_activeThreads.empty() && impl::g_coroutineCount == 0)
+      {
+        quit = true;
+        break;
+      }
+      impl::g_allTasksCv.wait(lock);
+    }
+  }
+
+  return future.Await();
+}
+
+// -----------------------------------------------------------------------------
+
+static size_t DestroyCompleteThreads()
+{
+  std::vector<std::thread> completeThreads;
+  {
+    std::lock_guard lock{ async::impl::g_completeThreadsMutex };
+    completeThreads.swap(async::impl::g_completeThreads);
+  }
+  async::impl::g_allTasksCv.notify_one();
+
+  for (std::thread& thread : completeThreads)
+  {
+    thread.join();
+  }
+
+  return completeThreads.size();
+}
+
+// -----------------------------------------------------------------------------
+
+static size_t RunReadyCoroutines()
+{
+  std::vector<std::shared_ptr<boost::context::continuation>> readyContinuations;
+  {
+    std::lock_guard lock{ async::impl::g_readyContinuationsMutex };
+    readyContinuations.swap(async::impl::g_readyContinuations);
+  }
+  async::impl::g_allTasksCv.notify_one();
+
+  async::impl::ThreadLocalCoroutineTaskContext* context
+    = async::impl::CreateThreadLocalCoroutineTaskContext();
+
+  for (std::shared_ptr<boost::context::continuation>& readyContinuation
+    : readyContinuations)
+  {
+    // TODO: It's possible that m_requeueCallback gets invoked and this
+    //       continuation is resumed by another thread before this thread yields
+    //       this session and updates the continuation.
+    context->m_requeueCallback = [readyContinuation]()
+      {
+        {
+          std::lock_guard lock{ async::impl::g_readyContinuationsMutex };
+          async::impl::g_readyContinuations.push_back(readyContinuation);
+        }
+        async::impl::g_allTasksCv.notify_one();
+      };
+
+    *readyContinuation = readyContinuation->resume();
+  }
+
+  async::impl::DestroyThreadLocalCoroutineTaskContext();
+
+  return readyContinuations.size();
 }
