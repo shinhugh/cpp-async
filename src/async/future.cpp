@@ -6,6 +6,7 @@
 
 #include "telemetry/living_span.h"
 
+#include <atomic>
 #include <condition_variable>
 #include <cstddef>
 #include <functional>
@@ -83,11 +84,42 @@ async::Future<void> async::Future<void>::RequireAll(
 // -----------------------------------------------------------------------------
 
 async::Future<size_t> async::Future<void>::RequireOne(
-  std::vector<Future<void>>& /*futures*/)
+  std::vector<Future<void>>& futures)
 {
-  std::shared_ptr<impl::PromiseFutureState<size_t>> state;
+  std::shared_ptr<impl::PromiseFutureState<size_t>> state
+    = std::make_shared<impl::PromiseFutureState<size_t>>();
 
-  // TODO: Implement
+  std::shared_ptr<std::atomic<bool>> fulfilled
+    = std::make_shared<std::atomic<bool>>(false);
+
+  for (size_t i = 0; i < futures.size(); i++)
+  {
+    impl::PromiseFutureState<void>& childFutureState = *futures.at(i).m_state;
+
+    std::unique_lock childFutureLock{ childFutureState.m_mutex };
+
+    if (childFutureState.m_fulfilled)
+    {
+      childFutureLock.unlock();
+
+      if (!fulfilled->exchange(true))
+      {
+        size_t j = i;
+        impl::Promise<size_t>{ state }.Fulfill(std::move(j));
+      }
+
+      break;
+    }
+
+    childFutureState.m_onFulfillCallbacks.push_back([state, fulfilled, i]()
+      {
+        if (!fulfilled->exchange(true))
+        {
+          size_t j = i;
+          impl::Promise<size_t>{ state }.Fulfill(std::move(j));
+        }
+      });
+  }
 
   return Future<size_t>{ state };
 }

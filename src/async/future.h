@@ -57,6 +57,7 @@ private:
 
 #include "telemetry/living_span.h"
 
+#include <atomic>
 #include <condition_variable>
 #include <functional>
 #include <mutex>
@@ -154,11 +155,45 @@ async::Future<std::vector<T>> async::Future<T>::RequireAll(
 
 template <typename T>
 async::Future<std::pair<size_t, T>> async::Future<T>::RequireOne(
-  std::vector<Future<T>>& /*futures*/)
+  std::vector<Future<T>>& futures)
 {
-  std::shared_ptr<impl::PromiseFutureState<std::pair<size_t, T>>> state;
+  std::shared_ptr<impl::PromiseFutureState<std::pair<size_t, T>>> state
+    = std::make_shared<impl::PromiseFutureState<std::pair<size_t, T>>>();
 
-  // TODO: Implement
+  std::shared_ptr<std::atomic<bool>> fulfilled
+    = std::make_shared<std::atomic<bool>>(false);
+
+  for (size_t i = 0; i < futures.size(); i++)
+  {
+    impl::PromiseFutureState<T>& childFutureState = *futures.at(i).m_state;
+
+    std::unique_lock childFutureLock{ childFutureState.m_mutex };
+
+    if (childFutureState.m_fulfilled)
+    {
+      T result = *childFutureState.m_result;
+
+      childFutureLock.unlock();
+
+      if (!fulfilled->exchange(true))
+      {
+        impl::Promise<std::pair<size_t, T>>{ state }.Fulfill(
+          std::make_pair(i, std::move(result)));
+      }
+
+      break;
+    }
+
+    childFutureState.m_onFulfillCallbacks.push_back([state, fulfilled, i](
+      const T& result)
+      {
+        if (!fulfilled->exchange(true))
+        {
+          impl::Promise<std::pair<size_t, T>>{ state }.Fulfill(
+            std::make_pair(i, result));
+        }
+      });
+  }
 
   return Future<std::pair<size_t, T>>{ state };
 }
