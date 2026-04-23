@@ -52,6 +52,7 @@ private:
 
 // -----------------------------------------------------------------------------
 
+#include "promise.h"
 #include "thread_local_task_context.h"
 
 #include "telemetry/living_span.h"
@@ -60,16 +61,91 @@ private:
 #include <functional>
 #include <mutex>
 #include <optional>
+#include <unordered_map>
+#include <unordered_set>
 
 // -----------------------------------------------------------------------------
 
 template <typename T>
 async::Future<std::vector<T>> async::Future<T>::RequireAll(
-  std::vector<Future<T>>& /*futures*/)
+  std::vector<Future<T>>& futures)
 {
-  std::shared_ptr<impl::PromiseFutureState<std::vector<T>>> state;
+  std::shared_ptr<impl::PromiseFutureState<std::vector<T>>> state
+    = std::make_shared<impl::PromiseFutureState<std::vector<T>>>();
 
-  // TODO: Implement
+  std::shared_ptr<std::unordered_set<size_t>> unfulfilledFutures
+    = std::make_shared<std::unordered_set<size_t>>();
+  std::shared_ptr<std::unordered_map<size_t, T>> results
+    = std::make_shared<std::unordered_map<size_t, T>>();
+  std::shared_ptr<std::mutex> mergeMutex = std::make_shared<std::mutex>();
+
+  for (size_t i = 0; i < futures.size(); i++)
+  {
+    unfulfilledFutures->insert(i);
+  }
+
+  for (size_t i = 0; i < futures.size(); i++)
+  {
+    impl::PromiseFutureState<T>& childFutureState = *futures.at(i).m_state;
+
+    std::unique_lock childFutureLock{ childFutureState.m_mutex };
+
+    if (childFutureState.m_fulfilled)
+    {
+      T result = *childFutureState.m_result;
+
+      childFutureLock.unlock();
+
+      bool shouldFulfill;
+      {
+        std::lock_guard mergeLock{ *mergeMutex };
+        results->emplace(i, std::move(result));
+        unfulfilledFutures->erase(i);
+        shouldFulfill = unfulfilledFutures->empty();
+      }
+
+      if (shouldFulfill)
+      {
+        std::vector<T> extractedResults;
+        for (size_t j = 0; j < results->size(); j++)
+        {
+          extractedResults.push_back(std::move(results->at(j)));
+        }
+        impl::Promise<std::vector<T>>{ state }.Fulfill(
+          std::move(extractedResults));
+      }
+
+      continue;
+    }
+
+    childFutureState.m_onFulfillCallbacks.push_back([
+      state,
+      unfulfilledFutures,
+      results,
+      mergeMutex,
+      i](
+      const T& result)
+      {
+        bool shouldFulfill;
+        {
+          std::lock_guard mergeLock{ *mergeMutex };
+          results->emplace(i, result);
+          unfulfilledFutures->erase(i);
+          shouldFulfill = unfulfilledFutures->empty();
+        }
+
+        if (shouldFulfill)
+        {
+          std::vector<T> extractedResults;
+          for (size_t j = 0; j < results->size(); j++)
+          {
+            extractedResults.push_back(std::move(results->at(j)));
+          }
+          impl::Promise<std::vector<T>>{ state }.Fulfill(
+            std::move(extractedResults));
+        }
+      });
+  }
 
   return Future<std::vector<T>>{ state };
 }

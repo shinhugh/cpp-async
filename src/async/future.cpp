@@ -1,6 +1,7 @@
 #include "future.h"
 
 #include "promise_future_state.h"
+#include "promise.h"
 #include "thread_local_task_context.h"
 
 #include "telemetry/living_span.h"
@@ -10,17 +11,71 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
 // -----------------------------------------------------------------------------
 
 async::Future<void> async::Future<void>::RequireAll(
-  std::vector<Future<void>>& /*futures*/)
+  std::vector<Future<void>>& futures)
 {
-  std::shared_ptr<impl::PromiseFutureState<void>> state;
+  std::shared_ptr<impl::PromiseFutureState<void>> state
+    = std::make_shared<impl::PromiseFutureState<void>>();
 
-  // TODO: Implement
+  std::shared_ptr<std::unordered_set<size_t>> unfulfilledFutures
+    = std::make_shared<std::unordered_set<size_t>>();
+  std::shared_ptr<std::mutex> mergeMutex = std::make_shared<std::mutex>();
+
+  for (size_t i = 0; i < futures.size(); i++)
+  {
+    unfulfilledFutures->insert(i);
+  }
+
+  for (size_t i = 0; i < futures.size(); i++)
+  {
+    impl::PromiseFutureState<void>& childFutureState = *futures.at(i).m_state;
+
+    std::unique_lock childFutureLock{ childFutureState.m_mutex };
+
+    if (childFutureState.m_fulfilled)
+    {
+      childFutureLock.unlock();
+
+      bool shouldFulfill;
+      {
+        std::lock_guard mergeLock{ *mergeMutex };
+        unfulfilledFutures->erase(i);
+        shouldFulfill = unfulfilledFutures->empty();
+      }
+
+      if (shouldFulfill)
+      {
+        impl::Promise<void>{ state }.Fulfill();
+      }
+
+      continue;
+    }
+
+    childFutureState.m_onFulfillCallbacks.push_back([
+      state,
+      unfulfilledFutures,
+      mergeMutex,
+      i]()
+      {
+        bool shouldFulfill;
+        {
+          std::lock_guard mergeLock{ *mergeMutex };
+          unfulfilledFutures->erase(i);
+          shouldFulfill = unfulfilledFutures->empty();
+        }
+
+        if (shouldFulfill)
+        {
+          impl::Promise<void>{ state }.Fulfill();
+        }
+      });
+  }
 
   return Future{ state };
 }
