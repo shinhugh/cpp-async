@@ -10,6 +10,7 @@
 
 #include <boost/context/continuation_fcontext.hpp>
 
+#include <chrono>
 #include <condition_variable>
 #include <cstddef>
 #include <functional>
@@ -189,6 +190,27 @@ async::Future<void> async::RunTaskOnNewCoroutine(std::function<void()>&& task)
   impl::g_allTasksCv.notify_one();
 
   return Future<void>{ promiseFutureState };
+}
+
+// -----------------------------------------------------------------------------
+
+void async::Yield()
+{
+  // TODO: Implement
+}
+
+// -----------------------------------------------------------------------------
+
+void async::YieldFor(std::chrono::steady_clock::duration /*duration*/)
+{
+  // TODO: Implement
+}
+
+// -----------------------------------------------------------------------------
+
+void async::YieldUntil(std::chrono::steady_clock::time_point /*timePoint*/)
+{
+  // TODO: Implement
 }
 
 // -----------------------------------------------------------------------------

@@ -4,6 +4,7 @@
 
 #include "telemetry/span.h"
 
+#include <chrono>
 #include <functional>
 #include <optional>
 
@@ -23,6 +24,9 @@ template <typename T>
 Future<T> RunTaskOnNewCoroutine(std::function<T()>&&);
 template <>
 Future<void> RunTaskOnNewCoroutine(std::function<void()>&&);
+void Yield();
+void YieldFor(std::chrono::steady_clock::duration);
+void YieldUntil(std::chrono::steady_clock::time_point);
 int ExecuteProgram(std::function<int()>&&);
 
 // -----------------------------------------------------------------------------
