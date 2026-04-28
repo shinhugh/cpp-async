@@ -169,9 +169,9 @@ void async::Yield()
 
 // -----------------------------------------------------------------------------
 
-void async::YieldFor(std::chrono::steady_clock::duration /*duration*/)
+void async::YieldFor(std::chrono::steady_clock::duration duration)
 {
-  // TODO: Implement
+  YieldUntil(std::chrono::steady_clock::now() + duration);
 }
 
 // -----------------------------------------------------------------------------
