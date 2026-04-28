@@ -164,7 +164,7 @@ async::Future<void> async::RunTaskOnNewCoroutine(std::function<void()>&& task)
 
 void async::Yield()
 {
-  // TODO: Implement
+  YieldUntil(std::chrono::steady_clock::now());
 }
 
 // -----------------------------------------------------------------------------
