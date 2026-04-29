@@ -1,6 +1,7 @@
 #include "async/async.h"
 #include "async/future.h"
 
+#include <chrono>
 #include <functional>
 #include <vector>
 
@@ -67,6 +68,22 @@ int Program()
   intFutures.push_back(async::RunTaskOnNewCoroutine<int>([]() { return 2; }));
   async::Future<int>::RequireOne(intFutures).Await();
   intFutures.clear();
+
+  async::RunTaskOnNewThread<void>([]()
+    {
+      async::Yield();
+      async::YieldFor(std::chrono::seconds(1));
+      async::YieldUntil(
+        std::chrono::steady_clock::now() + std::chrono::seconds(1));
+    }).Await();
+
+  async::RunTaskOnNewCoroutine<void>([]()
+    {
+      async::Yield();
+      async::YieldFor(std::chrono::seconds(1));
+      async::YieldUntil(
+        std::chrono::steady_clock::now() + std::chrono::seconds(1));
+    }).Await();
 
   return 0;
 }
