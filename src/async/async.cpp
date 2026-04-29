@@ -17,6 +17,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <queue>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -31,8 +32,28 @@ size_t async::impl::g_coroutineCount = 0;
 std::mutex async::impl::g_coroutineCountMutex;
 std::vector<std::shared_ptr<boost::context::continuation>>
   async::impl::g_readyContinuations;
-std::mutex async::impl::g_readyContinuationsMutex;
+std::recursive_mutex async::impl::g_readyContinuationsMutex;
 std::condition_variable_any async::impl::g_allTasksCv;
+static std::vector<
+  std::pair<
+    std::chrono::steady_clock::time_point,
+    std::function<void()>>>
+  s_timedRequeueCallbacksContainer;
+static std::priority_queue s_timedRequeueCallbacks{
+  [](
+    const std::pair<
+      std::chrono::steady_clock::time_point,
+      std::function<void()>>&
+      a,
+    const std::pair<
+      std::chrono::steady_clock::time_point,
+      std::function<void()>>&
+      b)
+  {
+    return a.first < b.first;
+  },
+  s_timedRequeueCallbacksContainer };
+static std::mutex s_timedRequeueCallbacksMutex;
 
 // -----------------------------------------------------------------------------
 
@@ -176,9 +197,36 @@ void async::YieldFor(std::chrono::steady_clock::duration duration)
 
 // -----------------------------------------------------------------------------
 
-void async::YieldUntil(std::chrono::steady_clock::time_point /*timePoint*/)
+void async::YieldUntil(std::chrono::steady_clock::time_point timePoint)
 {
-  // TODO: Implement
+  impl::ThreadLocalCoroutineTaskContext* context
+    = impl::GetThreadLocalCoroutineTaskContext();
+
+  if (!context)
+  {
+    std::this_thread::sleep_until(timePoint);
+  }
+
+  else
+  {
+    {
+      std::lock_guard lock{ s_timedRequeueCallbacksMutex };
+      s_timedRequeueCallbacks.emplace(
+        timePoint,
+        std::move(context->m_requeueCallback));
+    }
+    impl::g_allTasksCv.notify_one();
+
+    std::unique_ptr<telemetry::LivingSpan> span{ std::move(context->m_span) };
+    context->m_span.reset();
+    std::function<void()> yieldCallback = std::move(context->m_yieldCallback);
+    context->m_yieldCallback = {};
+
+    yieldCallback();
+
+    context->m_yieldCallback = std::move(yieldCallback);
+    context->m_span = std::move(span);
+  }
 }
 
 // -----------------------------------------------------------------------------
@@ -212,11 +260,13 @@ int async::ExecuteProgram(std::function<int()>&& program)
         impl::g_threadCountMutex,
         impl::g_completeThreadsMutex,
         impl::g_coroutineCountMutex,
-        impl::g_readyContinuationsMutex);
+        impl::g_readyContinuationsMutex,
+        s_timedRequeueCallbacksMutex);
     }
 
     void unlock()
     {
+      s_timedRequeueCallbacksMutex.unlock();
       impl::g_readyContinuationsMutex.unlock();
       impl::g_coroutineCountMutex.unlock();
       impl::g_completeThreadsMutex.unlock();
@@ -236,25 +286,48 @@ int async::ExecuteProgram(std::function<int()>&& program)
     {
       AllTasksLock lock;
 
-      while (impl::g_completeThreads.empty()
-        && impl::g_readyContinuations.empty())
+      while (true)
       {
         if (impl::g_threadCount == 0 && impl::g_coroutineCount == 0)
         {
           exit = true;
           break;
         }
-        impl::g_allTasksCv.wait(lock);
-      }
 
-      if (exit)
-      {
-        break;
-      }
+        std::chrono::steady_clock::time_point now{
+          std::chrono::steady_clock::now() };
 
-      completeThreads.swap(impl::g_completeThreads);
-      impl::g_threadCount -= completeThreads.size();
-      readyContinuations.swap(impl::g_readyContinuations);
+        while (!s_timedRequeueCallbacks.empty()
+          && s_timedRequeueCallbacks.top().first <= now)
+        {
+          s_timedRequeueCallbacks.top().second();
+          s_timedRequeueCallbacks.pop();
+        }
+
+        if (!impl::g_completeThreads.empty()
+          || !impl::g_readyContinuations.empty())
+        {
+          completeThreads.swap(impl::g_completeThreads);
+          impl::g_threadCount -= completeThreads.size();
+          readyContinuations.swap(impl::g_readyContinuations);
+          break;
+        }
+
+        if (s_timedRequeueCallbacks.empty())
+        {
+          impl::g_allTasksCv.wait(lock);
+        }
+        else
+        {
+          impl::g_allTasksCv.wait_until(
+            lock,
+            s_timedRequeueCallbacks.top().first);
+        }
+      }
+    }
+    if (exit)
+    {
+      break;
     }
     impl::g_allTasksCv.notify_one();
 

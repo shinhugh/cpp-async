@@ -66,7 +66,7 @@ extern size_t g_coroutineCount;
 extern std::mutex g_coroutineCountMutex;
 extern std::vector<std::shared_ptr<boost::context::continuation>>
   g_readyContinuations;
-extern std::mutex g_readyContinuationsMutex;
+extern std::recursive_mutex g_readyContinuationsMutex;
 extern std::condition_variable_any g_allTasksCv;
 
 // -----------------------------------------------------------------------------
