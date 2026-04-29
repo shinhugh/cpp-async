@@ -161,8 +161,121 @@ async::Future<void> async::RunTaskOnNewCoroutine(std::function<void()>&& task)
 
 // -----------------------------------------------------------------------------
 
-int async::ExecuteProgram(std::function<int()>&& /*program*/)
+int async::ExecuteProgram(std::function<int()>&& program)
 {
-  // TODO: Implement
-  return 1;
+  class AllTasksLock
+  {
+  public:
+    AllTasksLock()
+    {
+      lock();
+    }
+
+    AllTasksLock(const AllTasksLock&) = delete;
+
+    AllTasksLock(AllTasksLock&&) = delete;
+
+    ~AllTasksLock()
+    {
+      unlock();
+    }
+
+    AllTasksLock& operator=(const AllTasksLock&) = delete;
+
+    AllTasksLock& operator=(AllTasksLock&&) = delete;
+
+    void lock()
+    {
+      std::lock(
+        impl::g_threadCountMutex,
+        impl::g_completeThreadsMutex,
+        impl::g_coroutineCountMutex,
+        impl::g_readyContinuationsMutex);
+    }
+
+    void unlock()
+    {
+      impl::g_readyContinuationsMutex.unlock();
+      impl::g_coroutineCountMutex.unlock();
+      impl::g_completeThreadsMutex.unlock();
+      impl::g_threadCountMutex.unlock();
+    }
+  };
+
+  Future<int> future = RunTaskOnNewCoroutine<int>(std::move(program));
+
+  while (true)
+  {
+    std::vector<std::thread> completeThreads;
+    std::vector<std::shared_ptr<boost::context::continuation>>
+      readyContinuations;
+
+    bool exit = false;
+    {
+      AllTasksLock lock;
+
+      while (impl::g_completeThreads.empty()
+        && impl::g_readyContinuations.empty())
+      {
+        if (impl::g_threadCount == 0 && impl::g_coroutineCount == 0)
+        {
+          exit = true;
+          break;
+        }
+        impl::g_allTasksCv.wait(lock);
+      }
+
+      if (exit)
+      {
+        break;
+      }
+
+      completeThreads.swap(impl::g_completeThreads);
+      impl::g_threadCount -= completeThreads.size();
+      readyContinuations.swap(impl::g_readyContinuations);
+    }
+    impl::g_allTasksCv.notify_one();
+
+    for (std::thread& completeThread : completeThreads)
+    {
+      completeThread.join();
+    }
+
+    if (readyContinuations.size() > 0)
+    {
+      impl::ThreadLocalCoroutineTaskContext* context
+        = impl::CreateThreadLocalCoroutineTaskContext();
+
+      for (std::shared_ptr<boost::context::continuation>& readyContinuation
+        : readyContinuations)
+      {
+        std::shared_ptr<std::mutex> continuationMutex
+          = std::make_shared<std::mutex>();
+
+        context->m_requeueCallback = [readyContinuation, continuationMutex]()
+          {
+            {
+              std::lock_guard lock{ *continuationMutex };
+            }
+
+            {
+              std::lock_guard lock{ impl::g_readyContinuationsMutex };
+              impl::g_readyContinuations.push_back(readyContinuation);
+            }
+            impl::g_allTasksCv.notify_one();
+          };
+
+        {
+          std::lock_guard lock{ *continuationMutex };
+          *readyContinuation = readyContinuation->resume();
+        }
+
+        context->m_requeueCallback = {};
+      }
+
+      impl::DestroyThreadLocalCoroutineTaskContext();
+    }
+  }
+
+  return future.Await();
 }
