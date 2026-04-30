@@ -41,6 +41,14 @@ private:
 
 // -----------------------------------------------------------------------------
 
+#include <functional>
+#include <mutex>
+#include <optional>
+#include <utility>
+#include <vector>
+
+// -----------------------------------------------------------------------------
+
 template <typename T>
 async::impl::Promise<T>::Promise(
   const std::shared_ptr<PromiseFutureState<T>>& state)
@@ -51,6 +59,20 @@ async::impl::Promise<T>::Promise(
 // -----------------------------------------------------------------------------
 
 template <typename T>
-void async::impl::Promise<T>::Fulfill(T&& /*result*/)
+void async::impl::Promise<T>::Fulfill(T&& result)
 {
+  T resultTemp = std::move(result);
+
+  std::vector<std::function<void(const T&)>> onFulfillCallbacks;
+  {
+    std::lock_guard lock{ m_state->m_mutex };
+    m_state->m_result = resultTemp;
+    m_state->m_fulfilled = true;
+    onFulfillCallbacks.swap(m_state->m_onFulfillCallbacks);
+  }
+
+  for (std::function<void(const T&)>& onFulfillCallback : onFulfillCallbacks)
+  {
+    onFulfillCallback(resultTemp);
+  }
 }
