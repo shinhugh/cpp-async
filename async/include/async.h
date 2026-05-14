@@ -4,6 +4,7 @@
 #include "promise.h"
 
 #include <chrono>
+#include <cstddef>
 #include <functional>
 
 // -----------------------------------------------------------------------------
@@ -62,7 +63,8 @@ void YieldUntil(
     std::chrono::steady_clock::time_point);
 
 int RunApplication(
-    std::function<int(int, char *[])> &&application, int argc, char *argv[]);
+    std::function<int(int, char *[])> &&application, int argc, char *argv[],
+    size_t processorThreadCount = 1);
 
 // -----------------------------------------------------------------------------
 

@@ -9,6 +9,7 @@
 
 #include <chrono>
 #include <condition_variable>
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -18,6 +19,10 @@
 #include <unordered_map>
 #include <utility>
 #include <vector>
+
+// -----------------------------------------------------------------------------
+
+#define MAX_PROCESSOR_THREAD_COUNT 256
 
 // -----------------------------------------------------------------------------
 
@@ -249,8 +254,15 @@ void async::YieldUntil(
 // -----------------------------------------------------------------------------
 
 int async::RunApplication(
-    std::function<int(int, char *[])> &&application, int argc, char *argv[])
+    std::function<int(int, char *[])> &&application, int argc, char *argv[],
+    size_t processorThreadCount)
 {
+  if (processorThreadCount == 0 ||
+      processorThreadCount > MAX_PROCESSOR_THREAD_COUNT)
+  {
+    return 1;
+  }
+
   Future<int> future = RunOnNewCoroutine<int>(
       [
           application = std::move(application), argc, argv]()
@@ -258,12 +270,37 @@ int async::RunApplication(
         return application(argc, argv);
       });
 
+  std::vector<std::thread> processorThreads;
+  if (processorThreadCount > 1)
+  {
+    processorThreads.reserve(processorThreadCount - 1);
+    for (size_t i = 0; i < processorThreadCount - 1; i++)
+    {
+      processorThreads.emplace_back(
+          []()
+          {
+            while (true)
+            {
+              if (!ProcessTasks())
+              {
+                break;
+              }
+            }
+          });
+    }
+  }
+
   while (true)
   {
     if (!ProcessTasks())
     {
       break;
     }
+  }
+
+  for (std::thread &processorThread : processorThreads)
+  {
+    processorThread.join();
   }
 
   return future.Await();
