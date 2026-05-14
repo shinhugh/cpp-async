@@ -12,6 +12,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <thread>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -26,6 +27,9 @@ std::unordered_map<uint32_t, async::impl::Coroutine> async::impl::g_coroutines;
 std::vector<uint32_t> async::impl::g_completeCoroutines;
 std::vector<async::impl::Coroutine *> async::impl::g_readyCoroutines;
 uint32_t async::impl::g_nextCoroutineId = 0;
+std::unordered_map<uint32_t, async::impl::Thread> async::impl::g_threads;
+std::vector<uint32_t> async::impl::g_completeThreads;
+uint32_t async::impl::g_nextThreadId = 0;
 std::mutex async::impl::g_tasksMutex;
 std::condition_variable async::impl::g_tasksCv;
 
@@ -131,6 +135,65 @@ async::Future<void> async::RunOnNewCoroutine(
 
 // -----------------------------------------------------------------------------
 
+template <>
+async::Future<void> async::RunOnNewThread(
+    std::function<void(Promise<void>)> &&task)
+{
+  return RunOnCurrentContext<void>(
+      [
+          task = std::move(task)](
+          Promise<void> promise)
+      {
+        uint32_t threadId;
+        impl::Thread *thread;
+        {
+          std::lock_guard lock{impl::g_tasksMutex};
+          while (
+              impl::g_threads.find(impl::g_nextThreadId) !=
+              impl::g_threads.end())
+          {
+            impl::g_nextThreadId++;
+          }
+          threadId = impl::g_nextThreadId;
+          impl::g_nextThreadId++;
+          thread = &impl::g_threads[threadId];
+        };
+        impl::g_tasksCv.notify_one();
+
+        thread->m_thread =
+            std::thread{[
+                    task = std::move(task), promise = std::move(promise),
+                    threadId]() mutable
+                {
+                  task(std::move(promise));
+
+                  {
+                    std::lock_guard lock{impl::g_tasksMutex};
+                    impl::g_completeThreads.push_back(threadId);
+                  }
+                  impl::g_tasksCv.notify_one();
+                }};
+      });
+}
+
+// -----------------------------------------------------------------------------
+
+template <>
+async::Future<void> async::RunOnNewThread(
+    std::function<void()> &&task)
+{
+  return RunOnNewThread<void>(
+      [
+          task = std::move(task)](
+          Promise<void> promise)
+      {
+        task();
+        promise.Fulfill();
+      });
+}
+
+// -----------------------------------------------------------------------------
+
 int async::RunApplication(
     std::function<int(int, char *[])> &&application, int argc, char *argv[])
 {
@@ -157,6 +220,7 @@ int async::RunApplication(
 static bool ProcessTasks()
 {
   std::vector<uint32_t> completeCoroutines;
+  std::vector<uint32_t> completeThreads;
   std::vector<async::impl::Coroutine *> readyCoroutines;
 
   {
@@ -164,15 +228,17 @@ static bool ProcessTasks()
 
     while (true)
     {
-      if (async::impl::g_coroutines.empty())
+      if (async::impl::g_coroutines.empty() && async::impl::g_threads.empty())
       {
         return false;
       }
 
       if (!async::impl::g_completeCoroutines.empty() ||
+          !async::impl::g_completeThreads.empty() ||
           !async::impl::g_readyCoroutines.empty())
       {
         completeCoroutines.swap(async::impl::g_completeCoroutines);
+        completeThreads.swap(async::impl::g_completeThreads);
         readyCoroutines.swap(async::impl::g_readyCoroutines);
         break;
       }
@@ -195,6 +261,21 @@ static bool ProcessTasks()
       async::impl::g_coroutines.erase(coroutineId);
     }
   }
+
+  for (uint32_t threadId : completeThreads)
+  {
+    std::thread *thread;
+    {
+      std::lock_guard lock{async::impl::g_tasksMutex};
+      thread = &async::impl::g_threads.at(threadId).m_thread;
+    }
+    thread->join();
+    {
+      std::lock_guard lock{async::impl::g_tasksMutex};
+      async::impl::g_threads.erase(threadId);
+    }
+  }
+
   async::impl::g_tasksCv.notify_all();
 
   for (async::impl::Coroutine *coroutine : readyCoroutines)

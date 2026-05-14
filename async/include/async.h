@@ -36,6 +36,22 @@ template <>
 Future<void> RunOnNewCoroutine(
     std::function<void()> &&);
 
+template <typename T>
+Future<T> RunOnNewThread(
+    std::function<void(Promise<T>)> &&);
+
+template <>
+Future<void> RunOnNewThread(
+    std::function<void(Promise<void>)> &&);
+
+template <typename T>
+Future<T> RunOnNewThread(
+    std::function<T()> &&);
+
+template <>
+Future<void> RunOnNewThread(
+    std::function<void()> &&);
+
 int RunApplication(
     std::function<int(int, char *[])> &&application, int argc, char *argv[]);
 
@@ -54,6 +70,7 @@ int RunApplication(
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <thread>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -74,10 +91,20 @@ struct Coroutine
 
 // -----------------------------------------------------------------------------
 
+struct Thread
+{
+  std::thread m_thread;
+};
+
+// -----------------------------------------------------------------------------
+
 extern std::unordered_map<uint32_t, Coroutine> g_coroutines;
 extern std::vector<uint32_t> g_completeCoroutines;
 extern std::vector<Coroutine *> g_readyCoroutines;
 extern uint32_t g_nextCoroutineId;
+extern std::unordered_map<uint32_t, Thread> g_threads;
+extern std::vector<uint32_t> g_completeThreads;
+extern uint32_t g_nextThreadId;
 extern std::mutex g_tasksMutex;
 extern std::condition_variable g_tasksCv;
 
@@ -176,6 +203,65 @@ async::Future<T> async::RunOnNewCoroutine(
     std::function<T()> &&task)
 {
   return RunOnNewCoroutine<T>(
+      [
+          task = std::move(task)](
+          Promise<T> promise)
+      {
+        T result = task();
+        promise.Fulfill(std::move(result));
+      });
+}
+
+// -----------------------------------------------------------------------------
+
+template <typename T>
+async::Future<T> async::RunOnNewThread(
+    std::function<void(Promise<T>)> &&task)
+{
+  return RunOnCurrentContext<T>(
+      [
+          task = std::move(task)](
+          Promise<T> promise)
+      {
+        uint32_t threadId;
+        impl::Thread *thread;
+        {
+          std::lock_guard lock{impl::g_tasksMutex};
+          while (
+              impl::g_threads.find(impl::g_nextThreadId) !=
+              impl::g_threads.end())
+          {
+            impl::g_nextThreadId++;
+          }
+          threadId = impl::g_nextThreadId;
+          impl::g_nextThreadId++;
+          thread = &impl::g_threads[threadId];
+        };
+        impl::g_tasksCv.notify_one();
+
+        thread->m_thread =
+            std::thread{[
+                    task = std::move(task), promise = std::move(promise),
+                    threadId]() mutable
+                {
+                  task(std::move(promise));
+
+                  {
+                    std::lock_guard lock{impl::g_tasksMutex};
+                    impl::g_completeThreads.push_back(threadId);
+                  }
+                  impl::g_tasksCv.notify_one();
+                }};
+      });
+}
+
+// -----------------------------------------------------------------------------
+
+template <typename T>
+async::Future<T> async::RunOnNewThread(
+    std::function<T()> &&task)
+{
+  return RunOnNewThread<T>(
       [
           task = std::move(task)](
           Promise<T> promise)
