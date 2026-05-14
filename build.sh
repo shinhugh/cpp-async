@@ -6,9 +6,10 @@ mkdir -p build/_include/async
 cp async/include/* build/_include/async/
 
 mkdir -p build/async
-clang++ async/src/async.cpp   -c -o build/async/async.o   -Ibuild/_include -Ibuild/_include/async -D PLATFORM_POSIX -g -Wall -Wextra
-clang++ async/src/future.cpp  -c -o build/async/future.o  -Ibuild/_include -Ibuild/_include/async -D PLATFORM_POSIX -g -Wall -Wextra
-clang++ async/src/promise.cpp -c -o build/async/promise.o -Ibuild/_include -Ibuild/_include/async -D PLATFORM_POSIX -g -Wall -Wextra
+clang++ async/src/async.cpp             -c -o build/async/async.o             -Ibuild/_include -Ibuild/_include/async -D PLATFORM_POSIX -g -Wall -Wextra
+clang++ async/src/coroutine_context.cpp -c -o build/async/coroutine_context.o -Ibuild/_include -Ibuild/_include/async -D PLATFORM_POSIX -g -Wall -Wextra
+clang++ async/src/future.cpp            -c -o build/async/future.o            -Ibuild/_include -Ibuild/_include/async -D PLATFORM_POSIX -g -Wall -Wextra
+clang++ async/src/promise.cpp           -c -o build/async/promise.o           -Ibuild/_include -Ibuild/_include/async -D PLATFORM_POSIX -g -Wall -Wextra
 llvm-ar rcs build/libasync.a build/async/*.o
 
 mkdir -p build/main
@@ -18,15 +19,17 @@ mkdir -p build/test
 clang++ test/src/test.cpp -c -o build/test/test.o -Ibuild/_include -Ibuild/_include/test -D PLATFORM_POSIX -g -Wall -Wextra
 
 mkdir -p build
-clang++          \
-  build/main/*.o \
-  -Lbuild        \
-  -lasync        \
+clang++           \
+  build/main/*.o  \
+  -Lbuild         \
+  -lasync         \
+  -lboost_context \
   -o build/main.out
 
 mkdir -p build
-clang++          \
-  build/test/*.o \
-  -Lbuild        \
-  -lasync        \
+clang++           \
+  build/test/*.o  \
+  -Lbuild         \
+  -lasync         \
+  -lboost_context \
   -o build/test.out

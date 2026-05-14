@@ -49,6 +49,8 @@ private:
 
 // -----------------------------------------------------------------------------
 
+#include "coroutine_context.h"
+
 #include <condition_variable>
 #include <functional>
 #include <mutex>
@@ -69,17 +71,35 @@ async::Future<T>::Future(
 template <typename T>
 const T &async::Future<T>::Await()
 {
-  bool taskComplete = false;
-  std::mutex taskCompleteMutex;
-  std::condition_variable taskCompleteCv;
+  impl::CoroutineContext *context = impl::GetThreadLocalCoroutineContext();
 
+  std::unique_lock futureLock{m_state->m_mutex};
+
+  if (m_state->m_fulfilled)
   {
-    std::lock_guard lock{m_state->m_mutex};
+    return *m_state->m_result;
+  }
 
-    if (m_state->m_fulfilled)
-    {
-      return *m_state->m_result;
-    }
+  if (context)
+  {
+    m_state->m_onFulfillCallbacks.push_back(
+        [
+            queueCallback = context->m_queueCallback](
+            const T &)
+        {
+          queueCallback();
+        });
+
+    futureLock.unlock();
+
+    context->m_yieldCallback();
+  }
+
+  else
+  {
+    bool taskComplete = false;
+    std::mutex taskCompleteMutex;
+    std::condition_variable taskCompleteCv;
 
     m_state->m_onFulfillCallbacks.push_back(
         [
@@ -92,13 +112,13 @@ const T &async::Future<T>::Await()
           }
           taskCompleteCv.notify_one();
         });
-  }
 
-  {
-    std::unique_lock lock{taskCompleteMutex};
+    futureLock.unlock();
+
+    std::unique_lock taskCompleteLock{taskCompleteMutex};
     while (!taskComplete)
     {
-      taskCompleteCv.wait(lock);
+      taskCompleteCv.wait(taskCompleteLock);
     }
   }
 
