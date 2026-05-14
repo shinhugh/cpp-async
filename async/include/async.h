@@ -3,6 +3,7 @@
 #include "future.h"
 #include "promise.h"
 
+#include <chrono>
 #include <functional>
 
 // -----------------------------------------------------------------------------
@@ -51,6 +52,14 @@ Future<T> RunOnNewThread(
 template <>
 Future<void> RunOnNewThread(
     std::function<void()> &&);
+
+void Yield();
+
+void YieldFor(
+    std::chrono::steady_clock::duration);
+
+void YieldUntil(
+    std::chrono::steady_clock::time_point);
 
 int RunApplication(
     std::function<int(int, char *[])> &&application, int argc, char *argv[]);
@@ -105,8 +114,8 @@ extern uint32_t g_nextCoroutineId;
 extern std::unordered_map<uint32_t, Thread> g_threads;
 extern std::vector<uint32_t> g_completeThreads;
 extern uint32_t g_nextThreadId;
-extern std::mutex g_tasksMutex;
-extern std::condition_variable g_tasksCv;
+extern std::recursive_mutex g_tasksMutex;
+extern std::condition_variable_any g_tasksCv;
 
 // -----------------------------------------------------------------------------
 
