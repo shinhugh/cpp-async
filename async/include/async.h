@@ -1,24 +1,17 @@
-#include "async/async.h"
+#pragma once
 
 #include <functional>
 
 // -----------------------------------------------------------------------------
 
-static int Application(
-    int argc, char *argv[]);
+namespace async
+{
 
 // -----------------------------------------------------------------------------
 
-int main(
-    int argc, char *argv[])
-{
-  return async::RunApplication(Application, argc, argv);
-}
+int RunApplication(
+    std::function<int(int, char *[])> &&application, int argc, char *argv[]);
 
 // -----------------------------------------------------------------------------
 
-static int Application(
-    int, char *[])
-{
-  return 0;
-}
+}  // namespace async
